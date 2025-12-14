@@ -2,7 +2,7 @@ import express from "express";
 import cors from "cors";
 import puppeteer from "puppeteer";
 
-const PORT = Number(process.env.PORT || 3000);
+const PORT = Number(process.env.PORT || 10000);
 const SUPABASE_PROJECT_URL =
   process.env.SUPABASE_PROJECT_URL ||
   "https://mqnvfjteuwqbomvbmyhd.supabase.co";

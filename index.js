@@ -9,6 +9,7 @@ import { wrapper } from "axios-cookiejar-support";
 // --------------------
 const INTERNAL_API_TOKEN = process.env.INTERNAL_API_TOKEN;
 if (!INTERNAL_API_TOKEN) {
+  console.log("não achou a chave");
   throw new Error("Missing env var INTERNAL_API_TOKEN");
 }
 
@@ -45,6 +46,7 @@ app.options("*", (req, res) => res.sendStatus(204));
 app.use((req, res, next) => {
   const token = req.header("X-Internal-Token");
   if (token !== INTERNAL_API_TOKEN) {
+    console.log("token enviado diferente do salvo");
     return res.status(401).json({ error: "Unauthorized" });
   }
   next();
@@ -57,6 +59,7 @@ app.get("/health", (req, res) => res.json({ ok: true }));
 // INPI scraper (sessionful)
 // --------------------
 async function fetchInpiHtmlByMarca(marca) {
+  console.log("entrou na função");
   const jar = new CookieJar();
 
   const client = wrapper(
@@ -147,6 +150,7 @@ async function fetchInpiHtmlByMarca(marca) {
 // API endpoint
 // --------------------
 app.post("/consulta-inpi", async (req, res) => {
+  console.log("entrou na consulta");
   try {
     const marca = String(req.body?.marca || "").trim();
     if (!marca || marca.length < 2) {

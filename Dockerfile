@@ -8,7 +8,8 @@ RUN npm install --omit=dev
 COPY . .
 
 ENV NODE_ENV=production
-ENV PUPPETEER_SKIP_DOWNLOAD=true
 
+# O Render injeta PORT automaticamente
 EXPOSE 10000
-CMD ["npm", "start"]
+
+CMD ["node", "index.js"]

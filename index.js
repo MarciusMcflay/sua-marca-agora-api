@@ -172,6 +172,9 @@ app.post("/consulta-inpi", async (req, res) => {
       html: out.html
     });
   } catch (e) {
+    console.log("erro: ");
+    console.log(e);
+    console.log("fim do erro");
     return res.status(500).json({
       ok: false,
       error: e?.message || "Unknown error"

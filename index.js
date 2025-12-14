@@ -79,12 +79,14 @@ async function fetchInpiHtmlByMarca(marca) {
       validateStatus: () => true
     })
   );
+  console.log("montou o client");
 
   // 1) Abre a home (/pePI/) — frequentemente já seta JSESSIONID + BUSCAID
   const r1 = await client.get("https://busca.inpi.gov.br/pePI/");
   if (r1.status >= 400) {
     throw new Error(`INPI step1 failed: status=${r1.status}`);
   }
+  console.log("Abriu a home");
 
   // 2) Simula "acesso anônimo"
   const r2 = await client.get(
@@ -93,6 +95,7 @@ async function fetchInpiHtmlByMarca(marca) {
   if (r2.status >= 400) {
     throw new Error(`INPI step2 failed: status=${r2.status}`);
   }
+  console.log("simulou o anonimo");
 
   // 3) Abre a página de busca (ajuda o backend a preparar estado)
   const r3 = await client.get(

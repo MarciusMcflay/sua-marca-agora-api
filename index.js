@@ -1,31 +1,17 @@
 import express from "express";
 import cors from "cors";
-import axios from "axios";
-import { CookieJar } from "tough-cookie";
-import { wrapper } from "axios-cookiejar-support";
+import puppeteer from "puppeteer";
 
-// --------------------
-// Config
-// --------------------
-const INTERNAL_API_TOKEN = process.env.INTERNAL_API_TOKEN;
-if (!INTERNAL_API_TOKEN) {
-  console.log("não achou a chave");
-  throw new Error("Missing env var INTERNAL_API_TOKEN");
-}
-
-const SUPABASE_PROJECT_URL = "https://mqnvfjteuwqbomvbmyhd.supabase.co"
-const PORT = process.env.PORT || 3000;
-
-// --------------------
-// Express app
-// --------------------
 const app = express();
 app.use(express.json({ limit: "200kb" }));
 
-// CORS defensivo:
-// - permite requests sem Origin (server-to-server, comum em Edge Functions)
-// - permite apenas o seu SUPABASE_PROJECT_URL quando houver Origin (caso alguém tente via browser)
-// Observação: CORS NÃO é segurança. Segurança real é o token abaixo.
+const INTERNAL_API_TOKEN = process.env.INTERNAL_API_TOKEN;
+if (!INTERNAL_API_TOKEN) throw new Error("Missing INTERNAL_API_TOKEN");
+
+const SUPABASE_PROJECT_URL = process.env.SUPABASE_PROJECT_URL || "https://mqnvfjteuwqbomvbmyhd.supabase.co";
+const PORT = process.env.PORT || 3000;
+
+// CORS defensivo (não é a segurança real)
 app.use(
   cors({
     origin: (origin, cb) => {
@@ -39,152 +25,69 @@ app.use(
   })
 );
 
-// Preflight
-app.options("*", (req, res) => res.sendStatus(204));
+app.options("*", (_, res) => res.sendStatus(204));
 
-// Middleware de autenticação por token (segurança real)
+// Segurança REAL: token
 app.use((req, res, next) => {
   const token = req.header("X-Internal-Token");
-  if (token !== INTERNAL_API_TOKEN) {
-    console.log("token enviado diferente do salvo");
-    return res.status(401).json({ error: "Unauthorized" });
-  }
+  if (token !== INTERNAL_API_TOKEN) return res.status(401).json({ error: "Unauthorized" });
   next();
 });
 
-// Healthcheck (também protegido)
-app.get("/health", (req, res) => res.json({ ok: true }));
-
-// --------------------
-// INPI scraper (sessionful)
-// --------------------
-async function fetchInpiHtmlByMarca(marca) {
-  console.log("entrou na função");
-  const jar = new CookieJar();
-
-  const client = wrapper(
-    axios.create({
-      jar,
-      withCredentials: true,
-      timeout: 20000,
-      maxRedirects: 5,
-      headers: {
-        "User-Agent":
-          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        "Accept":
-          "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-        "Accept-Language": "pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7"
-      },
-      // se o INPI responder 302/403, a gente ainda quer ver e diagnosticar
-      validateStatus: () => true
-    })
-  );
-  console.log("montou o client");
-
-  // 1) Abre a home (/pePI/) — frequentemente já seta JSESSIONID + BUSCAID
-  const r1 = await client.get("https://busca.inpi.gov.br/pePI/");
-  if (r1.status >= 400) {
-    throw new Error(`INPI step1 failed: status=${r1.status}`);
-  }
-  console.log("Abriu a home");
-
-  // 2) Simula "acesso anônimo"
-  const r2 = await client.get(
-    "https://busca.inpi.gov.br/pePI/servlet/LoginController?action=login"
-  );
-  if (r2.status >= 400) {
-    throw new Error(`INPI step2 failed: status=${r2.status}`);
-  }
-  console.log("simulou o anonimo");
-
-  // 3) Abre a página de busca (ajuda o backend a preparar estado)
-  const r3 = await client.get(
-    "https://busca.inpi.gov.br/pePI/jsp/marcas/Pesquisa_classe_basica.jsp"
-  );
-  if (r3.status >= 400) {
-    throw new Error(`INPI step3 failed: status=${r3.status}`);
-  }
-
-  // 4) POST do formulário (o que o browser faz)
-  const form = new URLSearchParams({
-    buscaExata: "sim",
-    txt: "",
-    marca,
-    classeInter: "",
-    registerPerPage: "20",
-    botao: "+pesquisar+%BB+",
-    Action: "searchMarca",
-    tipoPesquisa: "BY_MARCA_CLASSIF_BASICA"
-  });
-
-  const r4 = await client.post(
-    "https://busca.inpi.gov.br/pePI/servlet/MarcasServletController",
-    form.toString(),
-    {
-      headers: {
-        "Content-Type": "application/x-www-form-urlencoded",
-        Origin: "https://busca.inpi.gov.br",
-        Referer:
-          "https://busca.inpi.gov.br/pePI/jsp/marcas/Pesquisa_classe_basica.jsp"
-      }
-    }
-  );
-
-  const html = typeof r4.data === "string" ? r4.data : "";
-  if (!html || html.length < 200) {
-    throw new Error(`INPI step4 returned empty/short html. status=${r4.status}`);
-  }
-
-  console.log("montou resultado");
-
-  // Sinais típicos de página de resultado (pra sanity check)
-  const ok =
-    html.includes("RESULTADO DA PESQUISA") ||
-    /Foram encontrados?\s*\d+\s*processos?/i.test(html) ||
-    html.toLowerCase().includes("nenhum resultado");
-
-  if (!ok) {
-    console.log("HTML returned but does not look like result page");
-    // ainda retorna, mas sinaliza possível página inesperada
-    return { html, warning: "HTML returned but does not look like result page", status: r4.status };
-  }
-
-  console.log("tem html");
-
-  return { html, status: r4.status };
-}
-
-// --------------------
-// API endpoint
-// --------------------
 app.post("/consulta-inpi", async (req, res) => {
-  console.log("entrou na consulta");
-  try {
-    const marca = String(req.body?.marca || "").trim();
-    if (!marca || marca.length < 2) {
-      return res.status(400).json({ error: "Invalid 'marca'" });
-    }
+  const marca = String(req.body?.marca || "").trim();
+  if (!marca || marca.length < 2) return res.status(400).json({ error: "Invalid 'marca'" });
 
-    const out = await fetchInpiHtmlByMarca(marca);
-    // Retorna HTML bruto (como você pediu)
-    return res.status(200).json({
-      ok: true,
-      marca,
-      status: out.status,
-      warning: out.warning || null,
-      html: out.html
+  let browser;
+  try {
+    browser = await puppeteer.launch({
+      headless: true,
+      args: [
+        "--no-sandbox",
+        "--disable-setuid-sandbox",
+        "--disable-dev-shm-usage",
+        "--disable-gpu"
+      ]
     });
+
+    const page = await browser.newPage();
+    page.setDefaultNavigationTimeout(45000);
+
+    // 1) site principal
+    await page.goto("https://busca.inpi.gov.br/pePI/", { waitUntil: "domcontentloaded" });
+
+    // 2) login anônimo
+    await page.goto("https://busca.inpi.gov.br/pePI/servlet/LoginController?action=login", {
+      waitUntil: "domcontentloaded"
+    });
+
+    // 3) busca simples por marca
+    await page.goto("https://busca.inpi.gov.br/pePI/jsp/marcas/Pesquisa_classe_basica.jsp", {
+      waitUntil: "domcontentloaded"
+    });
+
+    // 4) preenche e submete
+    await page.waitForSelector('input[name="marca"]', { timeout: 20000 });
+    await page.evaluate(() => {
+      const el = document.querySelector('input[name="marca"]');
+      if (el) el.value = "";
+    });
+    await page.type('input[name="marca"]', marca, { delay: 10 });
+
+    // clique e espera navegação (resultados)
+    await Promise.all([
+      page.waitForNavigation({ waitUntil: "domcontentloaded" }),
+      page.click('input[name="botao"]')
+    ]);
+
+    const html = await page.content();
+
+    return res.json({ ok: true, marca, html });
   } catch (e) {
-    console.log("erro: ");
-    console.log(e);
-    console.log("fim do erro");
-    return res.status(500).json({
-      ok: false,
-      error: e?.message || "Unknown error"
-    });
+    return res.status(500).json({ ok: false, error: e?.message || "Unknown error" });
+  } finally {
+    if (browser) await browser.close().catch(() => {});
   }
 });
 
-app.listen(PORT, () => {
-  console.log(`INPI proxy listening on :${PORT}`);
-});
+app.listen(PORT, () => console.log(`INPI puppeteer proxy listening on :${PORT}`));

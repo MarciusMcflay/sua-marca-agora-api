@@ -132,6 +132,8 @@ async function fetchInpiHtmlByMarca(marca) {
     throw new Error(`INPI step4 returned empty/short html. status=${r4.status}`);
   }
 
+  console.log("montou resultado");
+
   // Sinais típicos de página de resultado (pra sanity check)
   const ok =
     html.includes("RESULTADO DA PESQUISA") ||
@@ -139,9 +141,12 @@ async function fetchInpiHtmlByMarca(marca) {
     html.toLowerCase().includes("nenhum resultado");
 
   if (!ok) {
+    console.log("HTML returned but does not look like result page");
     // ainda retorna, mas sinaliza possível página inesperada
     return { html, warning: "HTML returned but does not look like result page", status: r4.status };
   }
+
+  console.log("tem html");
 
   return { html, status: r4.status };
 }

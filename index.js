@@ -8,7 +8,7 @@ if (!INTERNAL_API_TOKEN) throw new Error("Missing INTERNAL_API_TOKEN env var");
 const SUPABASE_PROJECT_URL =
   process.env.SUPABASE_PROJECT_URL || "https://mqnvfjteuwqbomvbmyhd.supabase.co";
 
-const PORT = Number(process.env.PORT || 10000);
+const PORT = Number(process.env.PORT || 3000);
 
 const app = express();
 app.use(express.json({ limit: "200kb" }));
